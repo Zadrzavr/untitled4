@@ -1,5 +1,11 @@
 import com.github.javafaker.Faker;
+import dto.CreateUserRequest;
+import dto.CreateUserResponse;
+import dto.ShoppingListRequest;
+import endpoint.Endpoints;
+import io.restassured.builder.RequestSpecBuilder;
 import io.restassured.path.json.JsonPath;
+import io.restassured.specification.RequestSpecification;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -7,67 +13,83 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import extensions.SpoonApiTest;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.stream.Stream;
 
 import static io.restassured.RestAssured.given;
 
 @SpoonApiTest
 public class MealPlan {
-    private static String userName;
-    private static String hash;
+    private static CreateUserResponse createUserResponse;
+    private static RequestSpecification hashParam;
+
     private int id;
 
     @BeforeAll
     static void beforeAll() {
         Faker faker = new Faker();
-        System.out.println(faker.chuckNorris().fact());
-        JsonPath jsonPath = given()
-                .body("{\n" +
-                        "    \"username\": \"" + faker.funnyName() + "\",\n" +
-                        "    \"firstName\": \"" + faker.name().firstName() + "\",\n" +
-                        "    \"lastName\": \"" + faker.name().lastName() + "\",\n" +
-                        "    \"email\": \"" + faker.internet().emailAddress() + "\"\n" +
-                        "}")
-                .post("/users/connect")
+        createUserResponse = given()
+                .body(CreateUserRequest.builder()
+                        .username(faker.funnyName().name())
+                        .firstName(faker.name().firstName())
+                        .lastName(faker.name().lastName())
+                        .email(faker.internet().emailAddress())
+                        .build())
+                .post(Endpoints.USER_CONNECT.getEndpoint())
+                .prettyPeek()
                 .then()
                 .statusCode(200)
                 .extract()
-                .body()
-                .jsonPath();
-        userName = jsonPath.getString("username");
-        hash = jsonPath.getString("hash");
+                .as(CreateUserResponse.class);
+        hashParam = new RequestSpecBuilder()
+                .addQueryParam("hash", createUserResponse.getHash())
+                .build();
     }
 
     @BeforeEach
     void setUp() {
         given()
-                .queryParam("hash", hash)
-                .get("/mealplanner/{username}/shopping-list", userName)
+                .spec(hashParam)
+                .get(Endpoints.MEALPLANNER_USERNAME_SHOPPING_LIST.getEndpoint(), createUserResponse.getUsername())
                 .then()
                 .statusCode(200)
                 .body("aisles", Matchers.hasSize(0));
     }
 
+
+    public static Stream<ShoppingListRequest> shoppingListRequests() {
+        return Stream.of(ShoppingListRequest.builder()
+                        .item("2 kg potato")
+                        .aisle("potato")
+                        .parse(true)
+                        .build(),
+                ShoppingListRequest.builder()
+                        .item("3 kg cabbage")
+                        .aisle("cabbage")
+                        .parse(true)
+                        .build());
+    }
+
     @ParameterizedTest
-    @CsvSource(value = {"2 kg potato,Potato", "3 kg cabbage,Cabbage"})
-    void addToShoppingListTest(String item, String aisle) {
+    @MethodSource("shoppingListRequests")
+    void addToShoppingListTest(ShoppingListRequest addItemToShoppingListRequest) {
         given()
-                .queryParam("hash", hash)
-                .body("{\n" +
-                        "    \"item\": \"" + item + "\",\n" +
-                        "    \"aisle\": \"" + aisle + "\",\n" +
-                        "    \"parse\": true\n" +
-                        "}")
-                .post("/mealplanner/{username}/shopping-list/items", userName)
+                .log()
+                .all()
+                .spec(hashParam)
+                .body(addItemToShoppingListRequest)
+                .post(Endpoints.MEALPLANNER_USERNAME_SHOPPING_LIST_ITEMS.getEndpoint(), createUserResponse.getUsername())
                 .then()
                 .statusCode(200);
 
         id = given()
-                .queryParam("hash", hash)
-                .get("/mealplanner/{username}/shopping-list", userName)
+                .spec(hashParam)
+                .get(Endpoints.MEALPLANNER_USERNAME_SHOPPING_LIST.getEndpoint(), createUserResponse.getUsername())
                 .then()
                 .statusCode(200)
                 .body("aisles", Matchers.hasSize(1))
-                .body("aisles.aisle", Matchers.hasItems(aisle))
+                .body("aisles.aisle", Matchers.hasItems(addItemToShoppingListRequest.getAisle()))
                 .body("aisles.items", Matchers.hasSize(1))
                 .extract()
                 .jsonPath()
@@ -77,8 +99,8 @@ public class MealPlan {
     @AfterEach
     void tearDown() {
         given()
-                .queryParam("hash", hash)
-                .delete("/mealplanner/{username}/shopping-list/items/{id}", userName, id)
+                .spec(hashParam)
+                .delete(Endpoints.MEALPLANNER_USERNAME_SHOPPING_LIST_ITEMS_ID.getEndpoint(), createUserResponse.getUsername(), id)
                 .then()
                 .statusCode(200);
     }

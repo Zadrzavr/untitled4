@@ -11,10 +11,8 @@ import static config.SpoonConfig.spoonConfig;
 
 public class SpoonApiTestExtension implements BeforeAllCallback {
     @Override
-    public void beforeAll(ExtensionContext extensionContext) throws Exception {
+    public void beforeAll(ExtensionContext extensionContext){
         RestAssured.baseURI = spoonConfig.baseURI();
-        RestAssured.enableLoggingOfRequestAndResponseIfValidationFails();
-        RestAssured.filters(new AllureRestAssured());
         RestAssured.requestSpecification = new RequestSpecBuilder()
                 .setContentType(ContentType.JSON)
                 .addQueryParam("apiKey", spoonConfig.apiKey())
